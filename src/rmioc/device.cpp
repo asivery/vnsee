@@ -97,10 +97,6 @@ void discover_input_devices(
 
 auto device::detect(device_request request) -> device
 {
-    std::ifstream device_id_file{"/sys/devices/soc0/machine"};
-    std::string device_id;
-    std::getline(device_id_file, device_id);
-
     types type = get_device_type();
     std::unique_ptr<buttons> buttons_device;
     std::unique_ptr<touch> touch_device;
