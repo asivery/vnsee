@@ -69,7 +69,7 @@ screen_mxcfb::screen_mxcfb(const char* device_path)
         throw std::system_error(
             errno,
             std::generic_category(),
-            "(rmioc::screen_rm2fb) Map framebuffer to memory"
+            "(rmioc::screen_mxcfb) Map framebuffer to memory"
         );
     }
 
