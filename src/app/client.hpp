@@ -32,9 +32,10 @@ public:
      *
      * @param ip IP address of the VNC server to connect to.
      * @param port Port of the VNC server to connect to.
+     * @param password Password to use for the VNC connection.
      * @param device Handle to opened devices.
      */
-    client(const char* ip, int port, rmioc::device& device);
+    client(const char* ip, int port, const char* password, rmioc::device& device);
 
     /** Disconnect the VNC client. */
     ~client();

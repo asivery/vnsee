@@ -58,7 +58,7 @@ namespace app
 
 using namespace std::placeholders;
 
-client::client(const char* ip, int port, rmioc::device& device)
+client::client(const char* ip, int port, const char* password, rmioc::device& device)
 : vnc_client(rfbGetClient(0, 0, 0))
 {
     if (device.get_screen() == nullptr)
@@ -99,6 +99,20 @@ client::client(const char* ip, int port, rmioc::device& device)
     this->vnc_client->serverHost = strdup(ip);
     this->vnc_client->serverPort = port;
 
+    // If password is not empty, set a GetPassword function to return it.
+    if(strcmp(password, "") != 0)
+    {
+        // Seems to need a static variable to work.
+        static char* staticPassword = nullptr;
+        // Will be freed by GetPassword after use, no need to free anything manually.
+        staticPassword = strdup(password);
+
+        this->vnc_client->GetPassword = [](rfbClient*) -> char*
+        {
+            return staticPassword;
+        };
+    }
+
     if (rfbInitClient(this->vnc_client, nullptr, nullptr) == 0)
     {
         throw std::runtime_error{"Failed to initialize VNC connection"};
@@ -125,7 +139,7 @@ client::client(const char* ip, int port, rmioc::device& device)
                         externalMessage.userInput.y
                     );
                 }
-                
+
                 if (externalMessage.userInput.inputType == INPUT_VKB_PRESS || externalMessage.userInput.inputType == INPUT_VKB_RELEASE) {
                     virtualkeyboard_ptr->handle_event(
                         externalMessage.userInput.inputType,
@@ -241,7 +255,7 @@ void client::send_virtual_key_press(
 {
     vnsee::log::print("Virtual key press")
         << keyCode << "\n";
-    
+
     SendKeyEvent(this->vnc_client, keyCode, down);
 }
 
