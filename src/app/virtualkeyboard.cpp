@@ -1,51 +1,49 @@
 #include "virtualkeyboard.hpp"
 #include "screen.hpp"
 #include "../rmioc/screen.hpp"
+#include "common.h"
 #include <iostream>
 #include <tuple>
 
-const bool isShifted(int ascii) {
-    if (ascii >= '!' && ascii <= '&') return true;
-    if (ascii >= '(' && ascii <= '+') return true;
-    if (ascii >= ':' && ascii <= ':') return true;
-    if (ascii >= '<' && ascii <= '<') return true;
-    if (ascii >= '>' && ascii <= 'Z') return true;
-    if (ascii >= '^' && ascii <= '_') return true;
-    if (ascii >= '{' && ascii <= '~') return true;
 
-    if (ascii >= 0xA2 && ascii <= 0xA3) return true; // ¢ to £
-    if (ascii >= 0xA6 && ascii <= 0xA8) return true; // ¦ to ¨
-    if (ascii >= 0xAF && ascii <= 0xB0) return true; // ¯ to °
-    if (ascii >= 0xB9 && ascii <= 0xB0) return true; // ¹ to °
-    if (ascii >= 0xC0 && ascii <= 0xD6) return true; // À to Ö
-    if (ascii >= 0xD8 && ascii <= 0xDE) return true; // Ø to Þ
-
-    return false;
-}
-
-std::tuple<int, bool> mapAsciiToX11Key(int ascii) {
-    const bool shifted = isShifted(ascii);
-
+int mapAsciiToX11Key(int ascii) {
     // All ASCII printable characters
     if (ascii >= ' ' && ascii <= '~') {
-        return {ascii, shifted};
+        return ascii;
     }
 
     // All ASCII printable extended characters
     if (ascii >= 0x00a0 && ascii <= 0x00ff) {
-        return {ascii, shifted};
+        return ascii;
     }
 
     // ASCII unprintable characters
     switch (ascii) {
-        case 8:   return {0xff08, false};     // Backspace
-        case 9:   return {0xff09, false};     // Tab
-        case 13:  return {0xff0d, false};     // Enter/Return
-        case 27:  return {0xff1b, false};     // Escape
-        case 127: return {0xffff, false};     // Delete
+        case 8:                 return 0xff08;     // Backspace
+        case 9:                 return 0xff09;     // Tab
+        case 13:                return 0xff0d;     // Enter/Return
+        case 27:                return 0xff1b;     // Escape
+        case 127:               return 0xffff;     // Delete
+        case INPUT_VKB_LEFT:    return 0xff51;
+        case INPUT_VKB_UP:      return 0xff52;
+        case INPUT_VKB_RIGHT:   return 0xff53;
+        case INPUT_VKB_DOWN:    return 0xff54;
+        case INPUT_VKB_HOME:    return 0xff50;
+        case INPUT_VKB_END:     return 0xff57;
+        case INPUT_VKB_PGUP:    return 0xff55;
+        case INPUT_VKB_PGDOWN:  return 0xff56;
     }
 
-    return {0x0000, false};
+    return 0;
+}
+
+int remapModifierKey(int key) {
+    switch (key) {
+        case INPUT_VKB_SHIFTMOD: return 0xffe1;
+        case INPUT_VKB_CTRLMOD: return 0xffe3;
+        case INPUT_VKB_ALTMOD: return 0xffe9;
+    }
+    return 0;
 }
 
 namespace app
@@ -71,14 +69,13 @@ void virtualkeyboard::handle_event(int type, int keyCode)
             this->screen.repaint();
         }
     } else {
-        auto [keySym, isShifted] = mapAsciiToX11Key(keyCode);
-
-        if (keySym != 0x0000) {
-            if (isShifted) {
-                this->send_virtual_key_press(0xffe1, type == INPUT_VKB_PRESS);
+        if (keyCode != 0x0000) {
+            if((keyCode & 0xFFFF) == 0) {
+                // Modifier key being pressed down
+                this->send_virtual_key_press(remapModifierKey(keyCode), type == INPUT_VKB_PRESS);
+            } else {
+                this->send_virtual_key_press(mapAsciiToX11Key(keyCode & 0xFFFF), type == INPUT_VKB_PRESS);
             }
-
-            this->send_virtual_key_press(keySym, type == INPUT_VKB_PRESS);
         }
     }
 }
