@@ -1,208 +1,46 @@
 #include "touch.hpp"
+#include "screen.hpp"
 #include "../rmioc/screen.hpp"
-#include "../rmioc/touch.hpp"
 #include <cstdlib>
 #include <functional>
 #include <map>
 #include <utility>
+#include <iostream>
 // IWYU pragma: no_include <ratio>
 // IWYU pragma: no_include <type_traits>
 
 namespace app
 {
 
-/**
- * Minimal move in pixels to consider that a touchpoint has been dragged
- * enough to initiate scrolling.
- */
-constexpr int scroll_delta = 10;
-
-/**
- * Duration of a tap to make it a right click action.
- */
-constexpr auto right_click_time = std::chrono::milliseconds{500};
-
-/**
- * Number of scroll events to send per screen pixel that is dragged.
- */
-constexpr double scroll_speed = 0.013;
-
 touch::touch(
-    rmioc::touch& device,
-    const rmioc::screen& screen_device,
+    app::screen& screen,
     MouseCallback send_button_press
 )
-: device(device)
-, screen_device(screen_device)
+: screen(screen)
 , send_button_press(std::move(send_button_press))
 {}
 
-auto touch::process_events(bool inhibit) -> event_loop_status
+void touch::handle_event(int type, int x, int y)
 {
-    if (this->device.process_events())
+    if (type == INPUT_TOUCH_PRESS || type == INPUT_PEN_PRESS)
     {
-        if (inhibit)
-        {
-            this->state = TouchState::Inactive;
-        }
-        else
-        {
-            auto device_state = this->device.get_state();
-
-            if (!device_state.empty())
-            {
-                // Compute the mean touch position
-                int summed_x = 0;
-                int summed_y = 0;
-                int total_points = static_cast<int>(device_state.size());
-
-                for (const auto& [id, slot] : device_state)
-                {
-                    summed_x += slot.x;
-                    summed_y += slot.y;
-                }
-
-                summed_x /= total_points;
-                summed_y /= total_points;
-
-                // Convert to screen coordinates
-                int screen_xres = this->screen_device.get_xres();
-                int screen_yres = this->screen_device.get_yres();
-
-                int touch_xres = this->device.get_xres();
-                int touch_yres = this->device.get_yres();
-
-                int screen_x = summed_x * screen_xres / touch_xres;
-                int screen_y = summed_y * screen_yres / touch_yres;
-                this->on_update(screen_x, screen_y);
-            }
-            else
-            {
-                this->on_end();
-            }
-        }
+        this->screen.set_repaint_mode(screen::repaint_modes::fast);
     }
 
-    return {/* quit = */ false, /* timeout = */ -1};
-}
+    this->send_button_press(
+        x, y,
+        MouseButton::Left
+    );
 
-void touch::on_update(int x, int y)
-{
-    if (this->state == TouchState::Inactive)
-    {
-        this->state = TouchState::Tap;
-        this->touch_start = std::chrono::steady_clock::now();
-        this->x_initial = x;
-        this->y_initial = y;
-        this->x_scroll_events = 0;
-        this->y_scroll_events = 0;
-    }
-
-    this->x = x;
-    this->y = y;
-
-    // Initiate scrolling if the touchpoint has travelled enough
-    if (this->state == TouchState::Tap)
-    {
-        if (std::abs(this->x - this->x_initial) >= scroll_delta)
-        {
-            this->state = TouchState::ScrollX;
-        }
-        else if (std::abs(this->y - this->y_initial) >= scroll_delta)
-        {
-            this->state = TouchState::ScrollY;
-        }
-    }
-
-    // Send discrete scroll events to reflect travelled distance
-    if (this->state == TouchState::ScrollX)
-    {
-        int x_units = static_cast<int>(
-            (this->x - this->x_initial) * scroll_speed);
-
-        for (; x_units > this->x_scroll_events; ++this->x_scroll_events)
-        {
-            this->send_button_press(
-                this->x_initial, this->y_initial,
-                MouseButton::ScrollLeft
-            );
-
-            this->send_button_press(
-                this->x_initial, this->y_initial,
-                MouseButton::None
-            );
-        }
-
-        for (; x_units < this->x_scroll_events; --this->x_scroll_events)
-        {
-            this->send_button_press(
-                this->x_initial, this->y_initial,
-                MouseButton::ScrollRight
-            );
-
-            this->send_button_press(
-                this->x_initial, this->y_initial,
-                MouseButton::None
-            );
-        }
-    }
-
-    if (this->state == TouchState::ScrollY)
-    {
-        int y_units = static_cast<int>(
-            (this->y - this->y_initial) * scroll_speed);
-
-        for (; y_units > this->y_scroll_events; ++this->y_scroll_events)
-        {
-            this->send_button_press(
-                this->x_initial, this->y_initial,
-                MouseButton::ScrollDown
-            );
-
-            this->send_button_press(
-                this->x_initial, this->y_initial,
-                MouseButton::None
-            );
-        }
-
-        for (; y_units < this->y_scroll_events; --this->y_scroll_events)
-        {
-            this->send_button_press(
-                this->x_initial, this->y_initial,
-                MouseButton::ScrollUp
-            );
-
-            this->send_button_press(
-                this->x_initial, this->y_initial,
-                MouseButton::None
-            );
-        }
-    }
-}
-
-void touch::on_end()
-{
-    // Perform tap action if the touchpoint was not used for scrolling
-    if (this->state == TouchState::Tap)
-    {
-        auto touch_duration
-            = std::chrono::steady_clock::now().time_since_epoch()
-            - this->touch_start.time_since_epoch();
-
+    if (type == INPUT_TOUCH_RELEASE || type == INPUT_PEN_RELEASE) {
         this->send_button_press(
-            this->x_initial, this->y_initial,
-            touch_duration < right_click_time
-                ? MouseButton::Left
-                : MouseButton::Right
-        );
-
-        this->send_button_press(
-            this->x_initial, this->y_initial,
+            x, y,
             MouseButton::None
         );
-    }
 
-    this->state = TouchState::Inactive;
+        this->screen.set_repaint_mode(screen::repaint_modes::standard);
+        this->screen.repaint();
+    }
 }
 
 } // namespace app

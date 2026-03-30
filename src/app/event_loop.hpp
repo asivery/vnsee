@@ -44,6 +44,13 @@ enum class MouseButton : std::uint8_t
  */
 using MouseCallback = std::function<void(int, int, MouseButton)>;
 
+/**
+ * Callback used to send virtual key press events to the VNC server.
+ *
+ * @param keyCode Key to press.
+ */
+using VirtualKeyboardCallback = std::function<void(int, bool)>;
+
 } // namespace app
 
 #endif // APP_EVENT_LOOP_HPP

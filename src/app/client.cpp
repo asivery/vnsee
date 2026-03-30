@@ -1,9 +1,7 @@
 #include "client.hpp"
 #include "../log.hpp"
-#include "../rmioc/buttons.hpp"
 #include "../rmioc/device.hpp"
-#include "../rmioc/pen.hpp"
-#include "../rmioc/touch.hpp"
+#include "qtfb-client.h"
 #include <algorithm>
 #include <bitset>
 #include <cerrno>
@@ -22,6 +20,7 @@
 #include <poll.h>
 #include <rfb/rfbclient.h>
 #include <unistd.h>
+#include <thread>
 // IWYU pragma: no_include <type_traits>
 
 /** Custom log printer for the VNC client library.  */
@@ -34,13 +33,21 @@ void vnc_client_log(const char* format, ...)
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-no-array-decay)
     va_start(args, format);
 
+    // Use a copy of args to compute required buffer size because vsnprintf
+    // consumes the va_list.
+    va_list args_copy;
+    va_copy(args_copy, args);
+
     // NOLINTNEXTLINE(hicpp-no-array-decay): Use of C library
-    ssize_t buffer_size = vsnprintf(nullptr, 0, format, args);
+    ssize_t buffer_size = vsnprintf(nullptr, 0, format, args_copy);
+    va_end(args_copy);
+
     std::vector<char> buffer(buffer_size + 1);
 
     // NOLINTNEXTLINE(hicpp-no-array-decay): Use of C library
     vsnprintf(buffer.data(), buffer.size(), format, args);
-    log::print("VNC message") << buffer.data();
+
+    vnsee::log::print("VNC message") << buffer.data();
 
     // NOLINTNEXTLINE(hicpp-no-array-decay): Use of C library
     va_end(args);
@@ -51,7 +58,7 @@ namespace app
 
 using namespace std::placeholders;
 
-client::client(const char* ip, int port, rmioc::device& device)
+client::client(const char* ip, int port, const char* password, rmioc::device& device)
 : vnc_client(rfbGetClient(0, 0, 0))
 {
     if (device.get_screen() == nullptr)
@@ -60,7 +67,28 @@ client::client(const char* ip, int port, rmioc::device& device)
     }
 
     auto& screen_device = *device.get_screen();
-    this->screen_handler.emplace(screen_device, vnc_client);
+
+    // Initialize the member screen_handler (avoid shadowing a local variable).
+    this->screen_handler = std::make_unique<screen>(screen_device, vnc_client);
+
+    auto virtualkeyboard_callback = [this](int keyCode, bool down)
+    {
+        this->send_virtual_key_press(keyCode, down);
+    };
+
+    // Initialize the member virtualkeyboard_handler (avoid shadowing a local variable).
+    this->virtualkeyboard_handler = std::make_unique<virtualkeyboard>(*this->screen_handler, virtualkeyboard_callback);
+
+    // Initialize the member touch_handler (avoid shadowing a local variable).
+    this->buttons_handler = std::make_unique<buttons>(screen_device);
+
+    auto button_callback = [this](int x, int y, MouseButton button)
+    {
+        this->send_button_press(x, y, button);
+    };
+
+    // Initialize the member touch_handler (avoid shadowing a local variable).
+    this->touch_handler = std::make_unique<touch>(*this->screen_handler, button_callback);
 
     rfbClientLog = vnc_client_log;
     rfbClientErr = vnc_client_log;
@@ -71,45 +99,62 @@ client::client(const char* ip, int port, rmioc::device& device)
     this->vnc_client->serverHost = strdup(ip);
     this->vnc_client->serverPort = port;
 
+    // If password is not empty, set a GetPassword function to return it.
+    if(strcmp(password, "") != 0)
+    {
+        // Seems to need a static variable to work.
+        static char* staticPassword = nullptr;
+        // Will be freed by GetPassword after use, no need to free anything manually.
+        staticPassword = strdup(password);
+
+        this->vnc_client->GetPassword = [](rfbClient*) -> char*
+        {
+            return staticPassword;
+        };
+    }
+
     if (rfbInitClient(this->vnc_client, nullptr, nullptr) == 0)
     {
         throw std::runtime_error{"Failed to initialize VNC connection"};
     }
 
-    if (device.get_buttons() != nullptr)
+    // create a pointer to the screen device and capture it by value in the lambda.
+    // detach the thread so its destructor won't call std::terminate.
     {
-        auto& buttons_device = *device.get_buttons();
-        this->buttons_handler.emplace(buttons_device, screen_device);
-        this->poll_buttons = this->polled_fds.size();
-        this->polled_fds.push_back(pollfd{});
-        buttons_device.setup_poll(this->polled_fds[this->poll_buttons]);
-    }
+        auto* device_ptr = &device;
+        auto* screen_ptr = this->screen_handler.get();
+        auto* touch_ptr = this->touch_handler.get();
+        auto* virtualkeyboard_ptr = this->virtualkeyboard_handler.get();
+        auto* buttons_ptr = this->buttons_handler.get();
 
-    auto button_callback = [this](int x, int y, MouseButton button)
-    {
-        this->send_button_press(x, y, button);
-    };
+        std::thread([device_ptr, screen_ptr, touch_ptr, virtualkeyboard_ptr, buttons_ptr]() {
+            qtfb::ServerMessage externalMessage;
+            while (true) {
+                device_ptr->get_screen()->get_connection().pollServerPacket(externalMessage);
 
-    if (device.get_pen() != nullptr)
-    {
-        auto& pen_device = *device.get_pen();
-        this->pen_handler.emplace(
-            pen_device, *this->screen_handler,
-            button_callback);
-        this->poll_pen = this->polled_fds.size();
-        this->polled_fds.push_back(pollfd{});
-        pen_device.setup_poll(this->polled_fds[this->poll_pen]);
-    }
+                if (externalMessage.userInput.inputType == INPUT_TOUCH_PRESS || externalMessage.userInput.inputType == INPUT_TOUCH_UPDATE || externalMessage.userInput.inputType == INPUT_TOUCH_RELEASE || externalMessage.userInput.inputType == INPUT_PEN_PRESS || externalMessage.userInput.inputType == INPUT_PEN_UPDATE || externalMessage.userInput.inputType == INPUT_PEN_RELEASE) {
+                    touch_ptr->handle_event(
+                        externalMessage.userInput.inputType,
+                        externalMessage.userInput.x,
+                        externalMessage.userInput.y
+                    );
+                }
 
-    if (device.get_touch() != nullptr)
-    {
-        auto& touch_device = *device.get_touch();
-        this->touch_handler.emplace(
-            touch_device, screen_device,
-            button_callback);
-        this->poll_touch = this->polled_fds.size();
-        this->polled_fds.push_back(pollfd{});
-        touch_device.setup_poll(this->polled_fds[this->poll_touch]);
+                if (externalMessage.userInput.inputType == INPUT_VKB_PRESS || externalMessage.userInput.inputType == INPUT_VKB_RELEASE) {
+                    virtualkeyboard_ptr->handle_event(
+                        externalMessage.userInput.inputType,
+                        externalMessage.userInput.x
+                    );
+                }
+
+                if (externalMessage.userInput.inputType == INPUT_BTN_PRESS || externalMessage.userInput.inputType == INPUT_BTN_RELEASE) {
+                    buttons_ptr->handle_event(
+                        externalMessage.userInput.inputType,
+                        externalMessage.userInput.x
+                    );
+                }
+            }
+        }).detach();
     }
 
     this->poll_vnc = this->polled_fds.size();
@@ -183,30 +228,6 @@ auto client::event_loop() -> bool
         }
 
         handle_status(this->screen_handler->event_loop());
-
-        if (this->pen_handler.has_value()
-        // NOLINTNEXTLINE(hicpp-signed-bitwise): Use of C library
-                && (polled_fds[this->poll_pen].revents & POLLIN) != 0)
-        {
-            handle_status(this->pen_handler->process_events());
-        }
-
-        bool inhibit = this->pen_handler.has_value()
-            && this->pen_handler->is_inhibiting();
-
-        if (this->buttons_handler.has_value()
-        // NOLINTNEXTLINE(hicpp-signed-bitwise): Use of C library
-                && (polled_fds[this->poll_buttons].revents & POLLIN) != 0)
-        {
-            handle_status(this->buttons_handler->process_events(inhibit));
-        }
-
-        if (this->touch_handler.has_value()
-        // NOLINTNEXTLINE(hicpp-signed-bitwise): Use of C library
-                && (polled_fds[this->poll_touch].revents & POLLIN) != 0)
-        {
-            handle_status(this->touch_handler->process_events(inhibit));
-        }
     }
 
     return true;
@@ -220,12 +241,22 @@ void client::send_button_press(
     auto button_flag = static_cast<std::uint8_t>(button);
     constexpr auto bits = 8 * sizeof(button_flag);
 
-    log::print("Button press")
+    vnsee::log::print("Button press")
         << x << 'x' << y << " (button mask: "
         << std::setfill('0') << std::setw(bits)
         << std::bitset<bits>(button_flag) << ")\n";
 
     SendPointerEvent(this->vnc_client, x, y, button_flag);
+}
+
+void client::send_virtual_key_press(
+    int keyCode, bool down
+)
+{
+    vnsee::log::print("Virtual key press")
+        << keyCode << "\n";
+
+    SendKeyEvent(this->vnc_client, keyCode, down);
 }
 
 } // namespace app

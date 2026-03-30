@@ -1,44 +1,28 @@
 #include "buttons.hpp"
-#include "../rmioc/buttons.hpp"
 #include "../rmioc/screen.hpp"
+#include <linux/input-event-codes.h>
 
 namespace app
 {
 
 buttons::buttons(
-    rmioc::buttons& device,
     rmioc::screen& screen_device
 )
-: device(device)
-, screen_device(screen_device)
-, previous_state{}
+: screen_device(screen_device)
 {}
 
-auto buttons::process_events(bool inhibit) -> event_loop_status
+void buttons::handle_event(int type, int buttonCode)
 {
-    if (this->device.process_events())
+    if (type == INPUT_BTN_PRESS && buttonCode == KEY_POWER)
     {
-        auto device_state = this->device.get_state();
-
-        if (!inhibit)
-        {
-            if (!device_state.power && this->previous_state.power)
-            {
-                // Quit application when pressing power
-                return {/* quit = */ true, /* timeout = */ -1};
-            }
-
-            if (!device_state.home && this->previous_state.home)
-            {
-                // Full screen refresh when pressing home
-                this->screen_device.update();
-            }
-        }
-
-        this->previous_state = device_state;
+        exit(0);
     }
 
-    return {/* quit = */ false, /* timeout = */ -1};
+    if (type == INPUT_BTN_PRESS && buttonCode == KEY_HOME)
+    {
+        // Full screen refresh when pressing home
+        this->screen_device.update();
+    }
 }
 
 } // namespace app

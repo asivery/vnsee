@@ -3,7 +3,7 @@
 
 #include <ostream>
 
-namespace log
+namespace vnsee::log
 {
 
 /**
@@ -15,7 +15,7 @@ namespace log
 template<typename String>
 std::ostream& print(const String& kind);
 
-}
+} // namespace vnsee::log
 
 #include "log.tpp" // IWYU pragma: export
 

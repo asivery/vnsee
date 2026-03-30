@@ -1,0 +1,13 @@
+{
+  "name": "VNSee (Standard)",
+  "application": "../vnsee/vnsee",
+  "supportsVirtualKeyboard": true,
+  "environment": {
+    "VNSEE_WAVEFORM_MODE": "STANDARD",
+    "VNSEE_ENCODING": "COPYRECT"
+  },
+  "args": [
+    "localhost"
+  ],
+  "qtfb": true
+}

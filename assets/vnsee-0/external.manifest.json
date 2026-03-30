@@ -1,0 +1,13 @@
+{
+  "name": "VNSee (Slow)",
+  "application": "../vnsee/vnsee",
+  "supportsVirtualKeyboard": true,
+  "environment": {
+    "VNSEE_WAVEFORM_MODE": "SLOW",
+    "VNSEE_ENCODING": "COPYRECT"
+  },
+  "args": [
+    "localhost"
+  ],
+  "qtfb": true
+}

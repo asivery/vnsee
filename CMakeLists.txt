@@ -1,22 +1,29 @@
-cmake_minimum_required(VERSION 3.7)
-project(VNSee VERSION 0.4.1)
+cmake_minimum_required(VERSION 3.20)
+project(VNSee VERSION 1.1.0 LANGUAGES CXX)
 
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(LibVNCClient libvncclient)
 
-if(NOT LibVNCClient_FOUND)
-    message(STATUS "LibVNCClient not found - using built-in version")
-    set(BUILD_SHARED_LIBS OFF CACHE STRING "" FORCE)
-    set(WITH_GNUTLS OFF CACHE STRING "" FORCE)
-    add_subdirectory(vendor/libvncserver)
-endif()
+set(BUILD_SHARED_LIBS OFF CACHE STRING "" FORCE)
+set(LIBVNCSERVER_INSTALL OFF CACHE STRING "" FORCE)
+set(WITH_LIBVNCSERVER OFF CACHE STRING "" FORCE)
+set(WITH_LIBSSHTUNNEL OFF CACHE STRING "" FORCE)
+set(WITH_SYSTEMD OFF CACHE STRING "" FORCE)
+set(WITH_FFMPEG OFF CACHE STRING "" FORCE)
+set(WITH_TIGHTVNC_FILETRANSFER OFF CACHE STRING "" FORCE)
+set(WITH_SDL OFF CACHE STRING "" FORCE)
+set(WITH_LZO OFF CACHE STRING "" FORCE)
+set(WITH_GTK OFF CACHE STRING "" FORCE)
+set(WITH_OPENSSL OFF CACHE STRING "" FORCE)
+set(WITH_GNUTLS OFF CACHE STRING "" FORCE)
+set(WITH_GCRYPT OFF CACHE STRING "" FORCE)
+set(WITH_EXAMPLES OFF CACHE STRING "" FORCE)
+set(WITH_SASL OFF CACHE STRING "" FORCE)
+set(WITH_XCB OFF CACHE STRING "" FORCE)
+set(WITH_TESTS OFF CACHE STRING "" FORCE)
+set(WITH_QT OFF CACHE STRING "" FORCE)
+add_subdirectory(vendor/libvncserver)
 
-find_package(Boost)
-
-if(NOT Boost_FOUND)
-    message(STATUS "Boost.Preprocessor not found - using built-in version")
-    add_subdirectory(vendor/boost-preprocessor)
-endif()
+add_subdirectory(vendor/boost-preprocessor)
 
 # Options for building vnsee
 option(CHECK_INCLUDES "Run include-what-you-use to check #includes" OFF)
@@ -50,47 +57,47 @@ endif()
 
 add_executable(vnsee
     src/app/buttons.cpp
+    src/app/virtualkeyboard.cpp
     src/app/client.cpp
-    src/app/pen.cpp
     src/app/screen.cpp
     src/app/touch.cpp
     src/main.cpp
-    src/rmioc/buttons.cpp
     src/rmioc/device.cpp
-    src/rmioc/file.cpp
-    src/rmioc/input.cpp
-    src/rmioc/mxcfb.cpp
-    src/rmioc/pen.cpp
     src/rmioc/screen.cpp
-    src/rmioc/screen_mxcfb.cpp
-    src/rmioc/screen_rm2fb.cpp
-    src/rmioc/touch.cpp
 )
-
-if(CMAKE_VERSION VERSION_LESS "3.8")
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=gnu++17")
-    else()
-        message(FATAL_ERROR "Unknown compiler")
-    endif()
-else()
-    set_property(TARGET vnsee PROPERTY CXX_STANDARD 17)
-endif()
 
 configure_file(src/config.hpp.in src/config.hpp)
 target_link_libraries(vnsee PUBLIC rt)
 target_include_directories(vnsee PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/src)
 
-if(NOT LibVNCClient_FOUND)
-    target_link_libraries(vnsee PRIVATE vncclient)
-    target_include_directories(vnsee PRIVATE ${LibVNCServer_BINARY_DIR} ${LibVNCServer_SOURCE_DIR})
-else()
-    target_link_libraries(vnsee PUBLIC ${LibVNCClient_LDFLAGS})
-    target_include_directories(vnsee PUBLIC ${LibVNCClient_INCLUDE_DIRS})
-endif()
+target_link_libraries(vnsee PRIVATE vncclient)
+target_include_directories(vnsee PRIVATE
+    ${LibVNCServer_BINARY_DIR}
+    ${LibVNCServer_BINARY_DIR}/include
+    ${LibVNCServer_SOURCE_DIR}/include
+)
 
-if(NOT Boost_FOUND)
-    target_link_libraries(vnsee PUBLIC Boost::preprocessor)
-else()
-    target_include_directories(vnsee PUBLIC ${Boost_INCLUDE_DIRS})
-endif()
+target_link_libraries(vnsee PUBLIC Boost::preprocessor)
+
+target_include_directories(vnsee PRIVATE
+    ${CMAKE_SOURCE_DIR}/vendor/rm-appload/backends/qtfb-clients/cpp
+)
+target_sources(vnsee PRIVATE
+    vendor/rm-appload/backends/qtfb-clients/cpp/qtfb-client.cpp
+)
+
+file(REMOVE_RECURSE ${CMAKE_BINARY_DIR}/dist)
+
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/dist)
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/dist/vnsee)
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/dist/vnsee)
+
+set_target_properties(vnsee PROPERTIES
+                      RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/dist/vnsee
+                      RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/dist/vnsee
+)
+
+file(COPY ${CMAKE_SOURCE_DIR}/assets/vnsee-0 DESTINATION ${CMAKE_BINARY_DIR}/dist)
+file(COPY ${CMAKE_SOURCE_DIR}/assets/vnsee-1 DESTINATION ${CMAKE_BINARY_DIR}/dist)
+file(COPY ${CMAKE_SOURCE_DIR}/assets/vnsee-2 DESTINATION ${CMAKE_BINARY_DIR}/dist)
+file(COPY ${CMAKE_SOURCE_DIR}/assets/vnsee-3 DESTINATION ${CMAKE_BINARY_DIR}/dist)

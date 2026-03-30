@@ -1,5 +1,4 @@
 #include "screen.hpp"
-#include "event_loop.hpp"
 #include "../log.hpp"
 #include "../rmioc/screen.hpp"
 #include <algorithm>
@@ -13,23 +12,6 @@
 
 namespace chrono = std::chrono;
 
-/**
- * Time to wait between two standard repaints.
- *
- * VNC servers tend to send a lot of small updates in a short period of time.
- * This delay allows grouping those small updates into a larger screen update.
- */
-constexpr chrono::milliseconds standard_repaint_delay{400};
-
-/**
- * Time to wait between two fast repaints.
- *
- * This mode is used when the pen is active so that the user can have a quicker
- * feedback on what they are drawing. When the pen is lifted, a high fidelity
- * update is performed.
- */
-constexpr chrono::milliseconds fast_repaint_delay{50};
-
 namespace app
 {
 
@@ -40,7 +22,29 @@ screen::screen(rmioc::screen& device, rfbClient* vnc_client)
 : device(device)
 , vnc_client(vnc_client)
 , repaint_mode(repaint_modes::standard)
+, standard_repaint_delay(500)
+, fast_repaint_delay(50) // 15 FPS
+, standard_waveform_mode(REFRESH_MODE_UI)
+, fast_waveform_mode(REFRESH_MODE_ANIMATE)
 {
+    char *env_waveform = std::getenv("VNSEE_WAVEFORM_MODE");
+
+    if (env_waveform != NULL) {
+        if (strcmp(env_waveform, "FASTEST") == 0) {
+            standard_repaint_delay = chrono::milliseconds(50);
+            standard_waveform_mode = REFRESH_MODE_ANIMATE;
+        } else if (strcmp(env_waveform, "FAST") == 0) {
+            standard_repaint_delay = chrono::milliseconds(200);
+            standard_waveform_mode = REFRESH_MODE_FAST;
+        } else if (strcmp(env_waveform, "STANDARD") == 0) {
+            standard_repaint_delay = chrono::milliseconds(500);
+            standard_waveform_mode = REFRESH_MODE_UI;
+        } else if (strcmp(env_waveform, "SLOW") == 0) {
+            standard_repaint_delay = chrono::milliseconds(1000);
+            standard_waveform_mode = REFRESH_MODE_CONTENT;
+        }
+    }
+
     rfbClientSetClientData(
         this->vnc_client,
         screen::instance_tag,
@@ -57,10 +61,47 @@ screen::screen(rmioc::screen& device, rfbClient* vnc_client)
     this->vnc_client->format.blueShift = this->device.get_blue_format().offset;
     this->vnc_client->format.blueMax = this->device.get_blue_format().max();
 
-    // Force the raw encoding and override the rect reception methods
-    this->vnc_client->appData.encodingsString = "raw";
+    char *env_encoding = std::getenv("VNSEE_ENCODING");
+    if (env_encoding != NULL) {
+        if (strcmp(env_encoding, "RAW") == 0) {
+            this->vnc_client->appData.encodingsString = "raw";
+        } else if (strcmp(env_encoding, "COPYRECT") == 0) {
+            this->vnc_client->appData.encodingsString = "copyrect";
+        } else if (strcmp(env_encoding, "TIGHT") == 0) {
+            this->vnc_client->appData.encodingsString = "tight";
+            this->vnc_client->appData.compressLevel = 9;
+            this->vnc_client->appData.enableJPEG = true;
+            this->vnc_client->appData.qualityLevel = 0;
+        } else if (strcmp(env_encoding, "HEXTILE") == 0) {
+            this->vnc_client->appData.encodingsString = "hextile";
+        } else if (strcmp(env_encoding, "ZLIB") == 0) {
+            this->vnc_client->appData.encodingsString = "zlib";
+            this->vnc_client->appData.compressLevel = 9;
+        } else if (strcmp(env_encoding, "ZLIBHEX") == 0) {
+            this->vnc_client->appData.encodingsString = "zlibhex";
+            this->vnc_client->appData.compressLevel = 9;
+        } else if (strcmp(env_encoding, "TRLE") == 0) {
+            this->vnc_client->appData.encodingsString = "trle";
+        } else if (strcmp(env_encoding, "ZRLE") == 0) {
+            this->vnc_client->appData.encodingsString = "zrle";
+        } else if (strcmp(env_encoding, "ZYWRLE") == 0) {
+            this->vnc_client->appData.encodingsString = "zywrle";
+            this->vnc_client->appData.qualityLevel = 0;
+        } else if (strcmp(env_encoding, "ULTRA") == 0) {
+            this->vnc_client->appData.encodingsString = "ultra";
+        } else if (strcmp(env_encoding, "ULTRAZIP") == 0) {
+            this->vnc_client->appData.encodingsString = "ultrazip";
+        } else if (strcmp(env_encoding, "CORRE") == 0) {
+            this->vnc_client->appData.encodingsString = "corre";
+        } else if (strcmp(env_encoding, "RRE") == 0) {
+            this->vnc_client->appData.encodingsString = "rre";
+        }
+    } else {
+        this->vnc_client->appData.encodingsString = "copyrect";
+    }
+
+    this->vnc_client->appData.useRemoteCursor = true;
     this->vnc_client->MallocFrameBuffer = screen::create_framebuf;
-    this->vnc_client->GotBitmap = screen::recv_update;
     this->vnc_client->GotFrameBufferUpdate = screen::commit_updates;
 }
 
@@ -75,7 +116,7 @@ void screen::repaint()
 
     this->last_repaint = chrono::steady_clock::now();
 
-    log::print("Screen update")
+    vnsee::log::print("Screen update")
         << this->update_info.w << 'x' << this->update_info.h << '+'
         << this->update_info.x << '+' << this->update_info.y << '\n';
 
@@ -83,8 +124,8 @@ void screen::repaint()
         this->update_info.x, this->update_info.y,
         this->update_info.w, this->update_info.h,
         this->repaint_mode == repaint_modes::standard
-            ? rmioc::waveform_modes::gl16
-            : rmioc::waveform_modes::du
+            ? standard_waveform_mode
+            : fast_waveform_mode
     );
 }
 
@@ -102,7 +143,7 @@ void screen::set_repaint_mode(repaint_modes mode)
 {
     this->repaint_mode = mode;
 
-    log::print("Screen update") << (mode == repaint_modes::standard
+    vnsee::log::print("Screen update") << (mode == repaint_modes::standard
         ? "Switched to standard mode\n"
         : "Switched to fast mode\n");
 }
@@ -167,56 +208,9 @@ auto screen::create_framebuf(rfbClient* vnc_client) -> rfbBool
             << xres << 'x' << yres << ")\nThe image will be cropped to fit\n";
     }
 
+    vnc_client->frameBuffer = that->device.get_data();
+
     return TRUE;
-}
-
-void screen::recv_update(
-    rfbClient* vnc_client, const uint8_t* buffer,
-    int x, int y, int w, int h
-)
-{
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    auto* that = reinterpret_cast<screen*>(
-        rfbClientGetClientData(
-            vnc_client,
-            screen::instance_tag
-        ));
-
-    if (x < 0 || y < 0
-        || x >= that->device.get_xres_memory()
-        || y >= that->device.get_yres_memory())
-    {
-        return;
-    }
-
-    std::size_t pixel_size = that->device.get_bits_per_pixel() / CHAR_BIT;
-
-    std::size_t dest_stride = that->device.get_xres_memory() * pixel_size;
-    std::size_t dest_size = dest_stride * that->device.get_yres_memory();
-    uint8_t* const dest = that->device.get_data();
-
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-    uint8_t* dest_line = dest + y * dest_stride + x * pixel_size;
-
-    std::size_t buffer_stride = w * pixel_size;
-    std::size_t buffer_size = buffer_stride * h;
-    const uint8_t* buffer_line = buffer;
-
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-    while (dest_line < dest + dest_size && buffer_line < buffer + buffer_size)
-    {
-        std::memcpy(
-            dest_line,
-            buffer_line,
-            std::min(dest_stride - x * pixel_size, buffer_stride)
-        );
-
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        dest_line += dest_stride;
-
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        buffer_line += buffer_stride;
-    }
 }
 
 void screen::commit_updates(rfbClient* vnc_client, int x, int y, int w, int h)
@@ -230,7 +224,7 @@ void screen::commit_updates(rfbClient* vnc_client, int x, int y, int w, int h)
 
     // Register the region as pending update, potentially extending
     // an existing one
-    log::print("VNC update") << w << 'x' << h << '+' << x << '+' << y << '\n';
+    vnsee::log::print("VNC update") << w << 'x' << h << '+' << x << '+' << y << '\n';
 
     if (that->update_info.has_update)
     {

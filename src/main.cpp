@@ -21,11 +21,12 @@
  */
 auto help(const char* name) -> void
 {
-    std::cout << "Usage: " << name << " [IP [PORT]] [OPTION...]\n"
-"Connect to the VNC server at IP:PORT.\n\n"
+    std::cout << "Usage: " << name << " [IP [PORT] [PASSWORD]] [OPTION...]\n"
+"Connect to the VNC server at IP:PORT with PASSWORD.\n\n"
 "Only when launching " PROJECT_NAME " from a SSH session is the IP optional,\n"
 "in which case the client’s IP address is taken by default.\n"
-"By default, PORT is 5900.\n\n"
+"By default, PORT is 5900.\n"
+"By default, PASSWORD is blank\n\n"
 "Available options:\n"
 "  -h, --help           Show this help message and exit.\n"
 "  -v, --version        Show the current version of " PROJECT_NAME " and exit.\n"
@@ -51,6 +52,7 @@ auto main(int argc, const char* argv[]) -> int
 {
     // Read options from the command line
     std::string server_ip;
+    std::string password;
     int server_port = default_server_port;
     rmioc::device_request request(rmioc::device_request::screen);
 
@@ -70,9 +72,9 @@ auto main(int argc, const char* argv[]) -> int
         return EXIT_SUCCESS;
     }
 
-    if (oper.size() > 2)
+    if (oper.size() > 3)
     {
-        std::cerr << "Too many operands: at most 2 are needed, you gave "
+        std::cerr << "Too many operands: at most 3 are needed, you gave "
             << oper.size() << ".\n"
             "Run “" << name << " --help” for more information.\n";
         return EXIT_FAILURE;
@@ -113,7 +115,7 @@ auto main(int argc, const char* argv[]) -> int
         server_ip = std::string(remote_ip_start, remote_ip_end);
     }
 
-    if (oper.size() == 2)
+    if (oper.size() >= 2)
     {
         try
         {
@@ -133,6 +135,11 @@ auto main(int argc, const char* argv[]) -> int
                 << max_port << ".\n";
             return EXIT_FAILURE;
         }
+    }
+
+    if (oper.size() == 3)
+    {
+        password = oper[2];
     }
 
     if (opts.count("no-buttons") >= 1)
@@ -192,7 +199,7 @@ auto main(int argc, const char* argv[]) -> int
         std::cerr << "Connecting to "
             << server_ip << ":" << server_port << "\n";
 
-        app::client client{server_ip.data(), server_port, device};
+        app::client client{server_ip.data(), server_port, password.data(), device};
 
         std::cerr << "Connection established\n";
 

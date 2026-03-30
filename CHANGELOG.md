@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.1.0
+
+- Ported VNSee to QTFB and renamed it to VNSee-QTFB.
+- Removed all of the code that isn't necessary for QTFB.
+- Allows setting the encoding mode with `VNSEE_ENCODING`.
+- Fixes all known bugs.
+
+## v1.0.0
+
+- Add support for virtual keyboard input at `/dev/input/virtual_keyboard`
+- Switch to the fastest refresh mode touch or pen input is detected, and when the virtual keyboard is shown and hidden.
+- Add support for VNC compression, and default to Hextile.
+- Remove fake scrolling and pass all touch events raw.
+- Configure the refresh mode from an environment variable.
+
 ## v0.4.1
 
 - Fix support for release 2.9.1 on reMarkable 1.

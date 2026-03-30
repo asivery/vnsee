@@ -4,3 +4,6 @@
 [submodule "boost-preprocessor"]
 	path = vendor/boost-preprocessor
 	url = https://github.com/boostorg/preprocessor
+[submodule "vendor/rm-appload"]
+	path = vendor/rm-appload
+	url = https://github.com/khyryra/rm-appload.git

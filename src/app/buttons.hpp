@@ -2,7 +2,6 @@
 #define APP_BUTTONS_HPP
 
 #include "event_loop.hpp"
-#include "../rmioc/buttons.hpp"
 
 namespace rmioc
 {
@@ -16,7 +15,6 @@ class buttons
 {
 public:
     buttons(
-        rmioc::buttons& device,
         rmioc::screen& screen_device
     );
 
@@ -25,17 +23,11 @@ public:
      *
      * @param inhibit True to discard any event from the buttons.
      */
-    event_loop_status process_events(bool inhibit);
+    void handle_event(int type, int buttonCode);
 
 private:
-    /** reMarkable buttons device. */
-    rmioc::buttons& device;
-
     /** reMarkable screen device. */
     rmioc::screen& screen_device;
-
-    /** Previous buttons state. */
-    rmioc::buttons::buttons_state previous_state;
 };
 
 } // namespace app
