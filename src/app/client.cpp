@@ -1,6 +1,5 @@
 #include "client.hpp"
 #include "../log.hpp"
-#include "../rmioc/device.hpp"
 #include "qtfb-client.h"
 #include <algorithm>
 #include <bitset>
@@ -58,18 +57,11 @@ namespace app
 
 using namespace std::placeholders;
 
-client::client(const char* ip, int port, const char* password, rmioc::device& device)
+client::client(const char* ip, int port, const char* password, rmioc::device_request& request)
 : vnc_client(rfbGetClient(0, 0, 0))
 {
-    if (device.get_screen() == nullptr)
-    {
-        throw std::runtime_error{"Missing screen device"};
-    }
-
-    auto& screen_device = *device.get_screen();
-
     // Initialize the member screen_handler (avoid shadowing a local variable).
-    this->screen_handler = std::make_unique<screen>(screen_device, vnc_client);
+    this->screen_handler = std::make_unique<screen>(*this, vnc_client);
 
     auto virtualkeyboard_callback = [this](int keyCode, bool down)
     {
@@ -80,7 +72,7 @@ client::client(const char* ip, int port, const char* password, rmioc::device& de
     this->virtualkeyboard_handler = std::make_unique<virtualkeyboard>(*this->screen_handler, virtualkeyboard_callback);
 
     // Initialize the member touch_handler (avoid shadowing a local variable).
-    this->buttons_handler = std::make_unique<buttons>(screen_device);
+    this->buttons_handler = std::make_unique<buttons>(*this);
 
     auto button_callback = [this](int x, int y, MouseButton button)
     {
@@ -116,45 +108,6 @@ client::client(const char* ip, int port, const char* password, rmioc::device& de
     if (rfbInitClient(this->vnc_client, nullptr, nullptr) == 0)
     {
         throw std::runtime_error{"Failed to initialize VNC connection"};
-    }
-
-    // create a pointer to the screen device and capture it by value in the lambda.
-    // detach the thread so its destructor won't call std::terminate.
-    {
-        auto* device_ptr = &device;
-        auto* screen_ptr = this->screen_handler.get();
-        auto* touch_ptr = this->touch_handler.get();
-        auto* virtualkeyboard_ptr = this->virtualkeyboard_handler.get();
-        auto* buttons_ptr = this->buttons_handler.get();
-
-        std::thread([device_ptr, screen_ptr, touch_ptr, virtualkeyboard_ptr, buttons_ptr]() {
-            qtfb::ServerMessage externalMessage;
-            while (true) {
-                device_ptr->get_screen()->get_connection().pollServerPacket(externalMessage);
-
-                if (externalMessage.userInput.inputType == INPUT_TOUCH_PRESS || externalMessage.userInput.inputType == INPUT_TOUCH_UPDATE || externalMessage.userInput.inputType == INPUT_TOUCH_RELEASE || externalMessage.userInput.inputType == INPUT_PEN_PRESS || externalMessage.userInput.inputType == INPUT_PEN_UPDATE || externalMessage.userInput.inputType == INPUT_PEN_RELEASE) {
-                    touch_ptr->handle_event(
-                        externalMessage.userInput.inputType,
-                        externalMessage.userInput.x,
-                        externalMessage.userInput.y
-                    );
-                }
-
-                if (externalMessage.userInput.inputType == INPUT_VKB_PRESS || externalMessage.userInput.inputType == INPUT_VKB_RELEASE) {
-                    virtualkeyboard_ptr->handle_event(
-                        externalMessage.userInput.inputType,
-                        externalMessage.userInput.x
-                    );
-                }
-
-                if (externalMessage.userInput.inputType == INPUT_BTN_PRESS || externalMessage.userInput.inputType == INPUT_BTN_RELEASE) {
-                    buttons_ptr->handle_event(
-                        externalMessage.userInput.inputType,
-                        externalMessage.userInput.x
-                    );
-                }
-            }
-        }).detach();
     }
 
     this->poll_vnc = this->polled_fds.size();
@@ -257,6 +210,60 @@ void client::send_virtual_key_press(
         << keyCode << "\n";
 
     SendKeyEvent(this->vnc_client, keyCode, down);
+}
+
+rmioc::screen* client::fetch()
+{
+    if(device)
+        return device->get_screen();
+    else
+        return NULL;
+}
+
+void client::create(std::optional<rmioc::screen_request_parameters> customResolution)
+{
+    //FIXME handle repeated changes of the framebuffer
+    device = std::make_unique<rmioc::device>(rmioc::device::detect(device_request, customResolution));
+    auto& screen_device = *device->get_screen();
+
+    // create a pointer to the screen device and capture it by value in the lambda.
+    // FIXME detach the thread so its destructor won't call std::terminate.
+    {
+        auto* device_ptr = device.get();
+        auto* screen_ptr = this->screen_handler.get();
+        auto* touch_ptr = this->touch_handler.get();
+        auto* virtualkeyboard_ptr = this->virtualkeyboard_handler.get();
+        auto* buttons_ptr = this->buttons_handler.get();
+
+        std::thread([device_ptr, screen_ptr, touch_ptr, virtualkeyboard_ptr, buttons_ptr]() {
+            qtfb::ServerMessage externalMessage;
+            while (true) {
+                device_ptr->get_screen()->get_connection().pollServerPacket(externalMessage);
+
+                if (externalMessage.userInput.inputType == INPUT_TOUCH_PRESS || externalMessage.userInput.inputType == INPUT_TOUCH_UPDATE || externalMessage.userInput.inputType == INPUT_TOUCH_RELEASE || externalMessage.userInput.inputType == INPUT_PEN_PRESS || externalMessage.userInput.inputType == INPUT_PEN_UPDATE || externalMessage.userInput.inputType == INPUT_PEN_RELEASE) {
+                    touch_ptr->handle_event(
+                        externalMessage.userInput.inputType,
+                        externalMessage.userInput.x,
+                        externalMessage.userInput.y
+                    );
+                }
+
+                if (externalMessage.userInput.inputType == INPUT_VKB_PRESS || externalMessage.userInput.inputType == INPUT_VKB_RELEASE) {
+                    virtualkeyboard_ptr->handle_event(
+                        externalMessage.userInput.inputType,
+                        externalMessage.userInput.x
+                    );
+                }
+
+                if (externalMessage.userInput.inputType == INPUT_BTN_PRESS || externalMessage.userInput.inputType == INPUT_BTN_RELEASE) {
+                    buttons_ptr->handle_event(
+                        externalMessage.userInput.inputType,
+                        externalMessage.userInput.x
+                    );
+                }
+            }
+        }).detach();
+    }
 }
 
 } // namespace app

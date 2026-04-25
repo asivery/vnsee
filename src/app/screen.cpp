@@ -1,6 +1,6 @@
 #include "screen.hpp"
 #include "../log.hpp"
-#include "../rmioc/screen.hpp"
+#include "../rmioc/device.hpp"
 #include <algorithm>
 #include <chrono>
 #include <climits>
@@ -18,8 +18,8 @@ namespace app
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-magic-numbers)
 void* screen::instance_tag = reinterpret_cast<void*>(6803);
 
-screen::screen(rmioc::screen& device, rfbClient* vnc_client)
-: device(device)
+screen::screen(screen_provider_t& screen_provider, rfbClient* vnc_client)
+: screen_provider(screen_provider)
 , vnc_client(vnc_client)
 , repaint_mode(repaint_modes::standard)
 , standard_repaint_delay(500)
@@ -51,15 +51,18 @@ screen::screen(rmioc::screen& device, rfbClient* vnc_client)
         this
     );
 
-    // Ask the server to send pixels in the same format as the screen buffer
-    this->vnc_client->format.bitsPerPixel = this->device.get_bits_per_pixel();
-    this->vnc_client->format.depth = this->device.get_bits_per_pixel();
-    this->vnc_client->format.redShift = this->device.get_red_format().offset;
-    this->vnc_client->format.redMax = this->device.get_red_format().max();
-    this->vnc_client->format.greenShift = this->device.get_green_format().offset;
-    this->vnc_client->format.greenMax = this->device.get_green_format().max();
-    this->vnc_client->format.blueShift = this->device.get_blue_format().offset;
-    this->vnc_client->format.blueMax = this->device.get_blue_format().max();
+    // Ask the server to send pixels in the default format
+    this->vnc_client->format.bitsPerPixel = 16;
+    this->vnc_client->format.depth = 16;
+    this->vnc_client->format.redShift = 11;
+    this->vnc_client->format.redMax = (1U << 5) - 1;
+    this->vnc_client->format.greenShift = 5;
+    this->vnc_client->format.greenMax = (1U << 6) - 1;
+    this->vnc_client->format.blueShift = 0;
+    this->vnc_client->format.blueMax = (1U << 5) - 1;
+    
+    // QTFB supports arbitrary framebuffer sizes
+    this->vnc_client->canHandleNewFBSize = true;
 
     char *env_encoding = std::getenv("VNSEE_ENCODING");
     if (env_encoding != NULL) {
@@ -107,6 +110,10 @@ screen::screen(rmioc::screen& device, rfbClient* vnc_client)
 
 void screen::repaint()
 {
+    rmioc::screen* screen = screen_provider.fetch();
+    if(!screen)
+        return;
+    
     // Clear the has_update flag only in standard repaint mode
     // In fast mode, a clean update will be needed in the future
     if (this->repaint_mode == repaint_modes::standard)
@@ -120,7 +127,7 @@ void screen::repaint()
         << this->update_info.w << 'x' << this->update_info.h << '+'
         << this->update_info.x << '+' << this->update_info.y << '\n';
 
-    this->device.update(
+    screen->update(
         this->update_info.x, this->update_info.y,
         this->update_info.w, this->update_info.h,
         this->repaint_mode == repaint_modes::standard
@@ -131,12 +138,18 @@ void screen::repaint()
 
 auto screen::get_xres() -> int
 {
-    return this->device.get_xres();
+    if(rmioc::screen* screen = screen_provider.fetch())
+        return screen->get_xres();
+    else
+        return -1;
 }
 
 auto screen::get_yres() -> int
 {
-    return this->device.get_yres();
+    if(rmioc::screen* screen = screen_provider.fetch())
+        return screen->get_yres();
+    else
+        return -1;
 }
 
 void screen::set_repaint_mode(repaint_modes mode)
@@ -188,10 +201,7 @@ auto screen::create_framebuf(rfbClient* vnc_client) -> rfbBool
             vnc_client,
             screen::instance_tag
         ));
-
-    int xres = static_cast<int>(that->device.get_xres());
-    int yres = static_cast<int>(that->device.get_yres());
-
+    
     if (vnc_client->width < 0 || vnc_client->height < 0)
     {
         std::stringstream msg;
@@ -199,6 +209,20 @@ auto screen::create_framebuf(rfbClient* vnc_client) -> rfbBool
             << vnc_client->width << 'x' << vnc_client->height;
         throw std::runtime_error{msg.str()};
     }
+    
+    that->screen_provider.create(rmioc::screen_request_parameters {vnc_client->width, vnc_client->height});
+    auto* screen = that->screen_provider.fetch();
+    
+    if(!screen)
+    {
+        std::stringstream msg;
+        msg << "Unable to initialise device with resolution ("
+            << vnc_client->width << 'x' << vnc_client->height;
+        throw std::runtime_error{msg.str()};
+    }
+    
+    int xres = static_cast<int>(screen->get_xres());
+    int yres = static_cast<int>(screen->get_yres());
 
     if (vnc_client->width > xres || vnc_client->height > yres)
     {
@@ -208,7 +232,7 @@ auto screen::create_framebuf(rfbClient* vnc_client) -> rfbBool
             << xres << 'x' << yres << ")\nThe image will be cropped to fit\n";
     }
 
-    vnc_client->frameBuffer = that->device.get_data();
+    vnc_client->frameBuffer = screen->get_data();
 
     return TRUE;
 }

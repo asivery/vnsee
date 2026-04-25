@@ -6,6 +6,8 @@
 #include "screen.hpp"
 #include "touch.hpp"
 #include "virtualkeyboard.hpp"
+#include "dep_provider.hpp"
+#include "../rmioc/device.hpp"
 #include <iosfwd>
 #include <optional>
 #include <poll.h> // IWYU pragma: keep
@@ -13,18 +15,14 @@
 #include <vector>
 #include <memory>
 
-namespace rmioc
-{
-    class device;
-}
-
 namespace app
 {
+
 
 /**
  * VNC client for the reMarkable tablet.
  */
-class client
+class client :public provider<rmioc::screen, std::optional<rmioc::screen_request_parameters> >
 {
 public:
     /**
@@ -33,9 +31,9 @@ public:
      * @param ip IP address of the VNC server to connect to.
      * @param port Port of the VNC server to connect to.
      * @param password Password to use for the VNC connection.
-     * @param device Handle to opened devices.
+     * @param request Parametres for opening devices.
      */
-    client(const char* ip, int port, const char* password, rmioc::device& device);
+    client(const char* ip, int port, const char* password, rmioc::device_request& request);
 
     /** Disconnect the VNC client. */
     ~client();
@@ -57,6 +55,12 @@ private:
 
     /** VNC connection. */
     rfbClient* vnc_client;
+
+    /** device parametres */
+    rmioc::device_request device_request;
+
+    /** device */
+    std::unique_ptr<rmioc::device> device;
 
     /** Event handler for the screen device. */
     std::unique_ptr<screen> screen_handler;
@@ -85,6 +89,9 @@ private:
      * @param keyCode Key to press.
      */
     void send_virtual_key_press(int keyCode, bool down);
+    
+    rmioc::screen* fetch() override;
+    void create(std::optional<rmioc::screen_request_parameters> customResolution = {}) override;
 }; // class client
 
 } // namespace app

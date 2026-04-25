@@ -19,10 +19,14 @@ device::device(
 : screen_device(std::move(screen_device))
 {}
 
-auto device::detect(device_request request) -> device
+auto device::detect(device_request request, std::optional<screen_request_parameters> screen_params) -> device
 {
     std::unique_ptr<screen> screen_device;
-    screen_device = std::make_unique<screen>();
+    std::optional<std::tuple<uint16_t, uint16_t>> customResolution = {};
+    if(screen_params) {
+        customResolution = std::make_tuple((uint16_t)screen_params.value().width, (uint16_t)screen_params.value().height);
+    }
+    screen_device = std::make_unique<screen>(customResolution);
 
     return device(
         std::move(screen_device)
