@@ -21,7 +21,7 @@ This project is not affiliated with, nor endorsed by, [reMarkable AS](https://re
 5) Delete the zip archive.
 6) Refresh AppLoad.
 
-The VNC server resolution must match your device resolution.
+This is an experimental branch supporting arbitrary resolutions configured by the VNC server.
 
 ## Technologies
 
