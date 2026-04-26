@@ -14,6 +14,7 @@
 #include <rfb/rfbclient.h>
 #include <vector>
 #include <memory>
+#include <thread>
 
 namespace app
 {
@@ -73,6 +74,9 @@ private:
 
     /** Event handler for the touch device. */
     std::unique_ptr<touch> touch_handler;
+
+    /** Thread for processing input events. */
+    std::unique_ptr<std::thread> input_thread;
 
     /**
      * Send a pointer event to the VNC server.

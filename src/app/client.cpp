@@ -222,12 +222,19 @@ rmioc::screen* client::fetch()
 
 void client::create(std::optional<rmioc::screen_request_parameters> customResolution)
 {
-    //FIXME handle repeated changes of the framebuffer
+    // if we already have a framebuffer, close it first.
+    if(device)
+    {
+        // destroying the device destroys the connection, which instructs the framebuffer server to close the socket
+        device = NULL;
+        // closing the QTFB connection should eventually stop the waiting input thread
+        input_thread->join();
+    }
+
     device = std::make_unique<rmioc::device>(rmioc::device::detect(device_request, customResolution));
     auto& screen_device = *device->get_screen();
 
     // create a pointer to the screen device and capture it by value in the lambda.
-    // FIXME detach the thread so its destructor won't call std::terminate.
     {
         auto* device_ptr = device.get();
         auto* screen_ptr = this->screen_handler.get();
@@ -235,10 +242,10 @@ void client::create(std::optional<rmioc::screen_request_parameters> customResolu
         auto* virtualkeyboard_ptr = this->virtualkeyboard_handler.get();
         auto* buttons_ptr = this->buttons_handler.get();
 
-        std::thread([device_ptr, screen_ptr, touch_ptr, virtualkeyboard_ptr, buttons_ptr]() {
+        input_thread = std::make_unique<std::thread>([device_ptr, screen_ptr, touch_ptr, virtualkeyboard_ptr, buttons_ptr]() {
             qtfb::ServerMessage externalMessage;
-            while (true) {
-                device_ptr->get_screen()->get_connection().pollServerPacket(externalMessage);
+            bool alive = true;
+            while (alive = device_ptr->get_screen()->get_connection().pollServerPacket(externalMessage)) {
 
                 if (externalMessage.userInput.inputType == INPUT_TOUCH_PRESS || externalMessage.userInput.inputType == INPUT_TOUCH_UPDATE || externalMessage.userInput.inputType == INPUT_TOUCH_RELEASE || externalMessage.userInput.inputType == INPUT_PEN_PRESS || externalMessage.userInput.inputType == INPUT_PEN_UPDATE || externalMessage.userInput.inputType == INPUT_PEN_RELEASE) {
                     touch_ptr->handle_event(
@@ -262,7 +269,7 @@ void client::create(std::optional<rmioc::screen_request_parameters> customResolu
                     );
                 }
             }
-        }).detach();
+        });
     }
 }
 
