@@ -194,12 +194,10 @@ auto main(int argc, const char* argv[]) -> int
     // Start the client
     try
     {
-        rmioc::device device = rmioc::device::detect(request);
-
         std::cerr << "Connecting to "
             << server_ip << ":" << server_port << "\n";
 
-        app::client client{server_ip.data(), server_port, password.data(), device};
+        app::client client{server_ip.data(), server_port, password.data(), request};
 
         std::cerr << "Connection established\n";
 

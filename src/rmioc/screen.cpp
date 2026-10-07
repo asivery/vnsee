@@ -35,8 +35,8 @@ int detect_fb_format()
 }
 }
 
-screen::screen()
-    : conn(qtfb::getIDFromAppload(), detect_fb_format(), {}, false)
+screen::screen(std::optional<std::tuple<uint16_t, uint16_t>> customResolution)
+    : conn(qtfb::getIDFromAppload(), detect_fb_format(), customResolution, false)
 {
     this->framebuf_fd = this->conn.shmFD;
 

@@ -33,7 +33,7 @@ public:
     /**
      * Connect to the qtfb server.
      */
-    screen();
+    screen(std::optional<std::tuple<uint16_t, uint16_t>> customResolution = {});
 
     void update(
         int x, int y, int w, int h,

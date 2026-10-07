@@ -2,6 +2,9 @@
 #define APP_BUTTONS_HPP
 
 #include "event_loop.hpp"
+#include "dep_provider.hpp"
+#include "../rmioc/device.hpp"
+#include <optional>
 
 namespace rmioc
 {
@@ -14,8 +17,10 @@ namespace app
 class buttons
 {
 public:
+    typedef provider<rmioc::screen, std::optional<rmioc::screen_request_parameters> > screen_provider_t;
+
     buttons(
-        rmioc::screen& screen_device
+        screen_provider_t& screen_provider
     );
 
     /**
@@ -26,8 +31,8 @@ public:
     void handle_event(int type, int buttonCode);
 
 private:
-    /** reMarkable screen device. */
-    rmioc::screen& screen_device;
+    /** reMarkable screen device provider. */
+    screen_provider_t& screen_provider;
 };
 
 } // namespace app

@@ -2,6 +2,7 @@
 #define APP_SCREEN_HPP
 
 #include "event_loop.hpp"
+#include "dep_provider.hpp"
 #include "../rmioc/screen.hpp"
 #include <chrono>
 #include <iosfwd>
@@ -13,6 +14,7 @@ namespace chrono = std::chrono;
 namespace rmioc
 {
     class screen;
+    struct screen_request_parameters;
 }
 
 namespace app
@@ -21,8 +23,10 @@ namespace app
 class screen
 {
 public:
+    typedef provider<rmioc::screen, std::optional<rmioc::screen_request_parameters> > screen_provider_t;
+
     screen(
-        rmioc::screen& device,
+        screen_provider_t& provider,
         rfbClient* vnc_client
     );
 
@@ -69,7 +73,7 @@ public:
 
 private:
     /** reMarkable screen device. */
-    rmioc::screen& device;
+    screen_provider_t& screen_provider;
 
     /** VNC connection. */
     rfbClient* vnc_client;

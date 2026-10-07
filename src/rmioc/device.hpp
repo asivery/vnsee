@@ -29,6 +29,10 @@ RMIOC_FLAGS_DEFINE(
     buttons, touch, pen, screen, virtualkeyboard
 );
 
+struct screen_request_parameters {
+    uint16_t width, height;
+};
+
 /**
  * Access input and output devices.
  *
@@ -44,7 +48,7 @@ public:
      *
      * @param request Devices to open.
      */
-    static device detect(device_request request);
+    static device detect(device_request request, std::optional<screen_request_parameters> = {});
 
     /** Access the screen device, if possible. */
     screen* get_screen();
